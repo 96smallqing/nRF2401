@@ -1,0 +1,60 @@
+C51 COMPILER V9.00   T4_TIME                                                               11/15/2018 21:18:16 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE T4_TIME
+OBJECT MODULE PLACED IN T4_time.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE Time4\T4_time.c OPTIMIZE(8,SPEED) BROWSE INCDIR(.\oled;..\STC15NRFre;.\T
+                    -ime4;.\DHT11) DEBUG OBJECTEXTEND PRINT(.\T4_time.lst) TABS(2) OBJECT(T4_time.obj)
+
+line level    source
+
+   1          //功能 ：用于测试定时器T4的文件
+   2          #include "T4_Time.h"
+   3          static unsigned char T4_Count=0;//T4中断计数器
+   4          static unsigned char T4_Count1=0;//T4中断计数器
+   5          unsigned char flag1 =0;   //KEY1按下的标志位
+   6          //初始化定时器T4
+   7          void Init_T4(void)//25ms  11.0592Mhz
+   8          {
+   9   1        //初始化T4作为MCULED指示灯
+  10   1        T4T3M &= 0xDF;    //12T模式
+  11   1        T4L = 0x00;   //定时器初值
+  12   1        T4H = 0xA6;   //定时器初值
+  13   1        T4T3M |= 0x80;    //T4开始计时
+  14   1        IE2 |= 0X40;//允许T4中断
+  15   1        T4T3M |= 0x80;//打开T4定时器
+  16   1      }
+  17          //定时器T4中断服务程序 25Ms中断一次
+  18          void T4_INT(void) interrupt 20
+  19          {
+  20   1        T4_Count++;
+  21   1        T4_Count1++;
+  22   1        if(T4_Count > 20)   //led2  500ms闪烁
+  23   1        {
+  24   2          T4_Count = 0;
+  25   2          led2 = ~led2;     //检测T4 工作正常即LED2以500ms亮灭    
+  26   2        }
+  27   1        if(T4_Count1 >1)   //按键检测
+  28   1        {
+  29   2          T4_Count1 = 0;
+  30   2        if(KEY1 == 0)
+  31   2        {
+  32   3          flag1 =1;
+  33   3        }
+  34   2            
+  35   2        }
+  36   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     60    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      3    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

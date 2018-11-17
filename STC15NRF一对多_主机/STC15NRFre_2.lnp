@@ -1,0 +1,7 @@
+"STC15NRFre_2.obj",
+"oled.obj",
+"T4_time.obj",
+"delay.obj",
+"esp8266.obj" 
+TO "STC15NRFre_2" 
+RAMSIZE(256) 

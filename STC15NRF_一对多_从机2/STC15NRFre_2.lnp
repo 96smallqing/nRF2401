@@ -1,0 +1,5 @@
+"STC15NRFre_2.obj",
+"oled.obj",
+"T4_time.obj" 
+TO "STC15NRFre_2" 
+RAMSIZE(256) 

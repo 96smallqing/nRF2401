@@ -1,0 +1,164 @@
+C51 COMPILER V9.00   ESP8266                                                               11/14/2018 19:53:48 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE ESP8266
+OBJECT MODULE PLACED IN esp8266.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE uart2\esp8266.c OPTIMIZE(8,SPEED) BROWSE INCDIR(.\oled;..\STC15NRFre;.\T
+                    -ime4;.\uart2) DEBUG OBJECTEXTEND PRINT(.\esp8266.lst) TABS(2) OBJECT(esp8266.obj)
+
+line level    source
+
+   1          #include "esp8266.h"  //STC15W4Kæß’Ò11.0592MHz
+   2          #include "string.h"
+   3          #include "WIFI.h"
+   4          #include<STC15W4K.h>
+   5          /*************  ±æµÿ≥£¡ø…˘√˜  **************/
+   6          #define MAIN_Fosc   11059200L //∂®“Â÷˜ ±÷”
+   7          #define RX2_Length  4   /* Ω” ’ª∫≥Â≥§∂» */
+   8          #define UART_BaudRate2  115200UL   /* ≤®Ãÿ¬  */
+   9          //unsigned char config[]={"AT+MCONFIG=\"869300031657095\",\"5qx9dzUzHMvls4e9kMAO0010066c00\",\"355d19eef21
+             -04fb5bb28f8caea0b8b3a\"\x00D\x00A"};
+  10          //-------------“‘œ¬Œ™π¶ƒ‹∂®“Â------------------------------------------------------------
+  11          //BYTE code  WiFi_AT[]={"AT\x00D\x00A"};                            //∏Ò ΩªØ√¸¡Ó°£
+  12          //BYTE code  WiFi_CWMODE[]={"AT+CWMODE=1\x00D\x00A"};                     //ªÒ»°∞Ê±æ–≈œ¢
+  13          //BYTE code  WiFi_CWJAP[]={"AT+CWJAP_DEF=\"surfer_413\",\"surfer_413\"\x00D\x00A"};                   //1£¨∏Ω
+             -◊≈Õ¯¬Á£ª0Œ¥∏Ω◊≈Õ¯¬Á
+  14          //BYTE code  WiFi_CIFSR[]={"AT+CIFSR\x00D\x00A"}; //AT+SAPBR£¨IP…Ë÷√£¨CONTYPE“ÚÃÿÕ¯¡¨Ω”£¨GPRS£∫gprs¡¨Ω”
+  15          //BYTE code  WiFi_CIPSTART[]={"AT+CIPSTART=\"TCP\",\"120.77.58.34\",8700\x00D\x00A"}; //AT+SAPBR£¨IP…Ë÷√£¨
+             -CONTYPE“ÚÃÿÕ¯¡¨Ω”£¨GPRS£∫gprs¡¨Ω”
+  16          //BYTE code  WiFi_CIPMODE[]={"AT+CIPMODE=1\x00D\x00A"}; //AT+SAPBR£¨IP…Ë÷√£¨CONTYPE“ÚÃÿÕ¯¡¨Ω”£¨GPRS£∫gprs¡
+             -¨Ω”
+  17          //BYTE code  WiFi_CIPSEND[]={"AT+CIPSEND\x00D\x00A"};                        //air202∆Ù”√HEX MQTTƒ£ Ω
+  18          //BYTE code  WiFi_CONNECT[]={"{\"t\": 1,\"device\": \"suo001\",\"key\":\"a553fd6306fd4898a7445013e28aa89a\
+             -",\"ver\":\"v1.1\"}"};                       //air202∆Ù”√HEX MQTTƒ£ Ω
+  19          //BYTE    WiFi_UPDATA[]={"{\"t\": 3,\"datatype\":1,\"datas\":{\"temp\":\"0\",\"shidu\":\"46\"},\"msgid\": 
+             -123}"}; //temp∫Û√Ê∏˙◊≈…œ¥´–≈œ¢
+  20          
+  21          u8  xdata RX2_Buffer[RX2_Length]; //Ω” ’ª∫≥Â
+  22          u8  TX2_read,RX2_write; //∂¡–¥À˜“˝(÷∏’Î).
+  23          bit B_TX2_Busy;
+  24          
+  25          //u8 flag_xintiao = 0;
+  26          void  SetTimer2Baudraye(u16 dat)  // —°‘Ò≤®Ãÿ¬ , 2:  π”√Timer2◊ˆ≤®Ãÿ¬ , ∆‰À¸÷µ:  π”√Timer1◊ˆ≤®Ãÿ¬ .
+  27          {
+  28   1        AUXR &= ~(1<<4);  //Timer stop
+  29   1        AUXR &= ~(1<<3);  //Timer2 set As Timer
+  30   1        AUXR |=  (1<<2);  //Timer2 set as 1T mode
+  31   1        TH2 = dat / 256;
+  32   1        TL2 = dat % 256;
+  33   1        IE2  &= ~(1<<2);  //Ω˚÷π÷–∂œ
+  34   1        AUXR |=  (1<<4);  //Timer run enable
+  35   1      }
+  36          void  UART2_config(u8 brt)  // —°‘Ò≤®Ãÿ¬ , 2:  π”√Timer2◊ˆ≤®Ãÿ¬ , ∆‰À¸÷µ: Œﬁ–ß.
+  37          {
+  38   1        u8  i;
+  39   1        /*********** ≤®Ãÿ¬ πÃ∂® π”√∂® ±∆˜2 *****************/
+  40   1        if(brt == 2)  SetTimer2Baudraye(65536UL - (MAIN_Fosc / 4) / UART_BaudRate2);
+  41   1      
+  42   1        S2CON &= ~(1<<7); // 8Œª ˝æ›, 1Œª∆ ºŒª, 1ŒªÕ£÷πŒª, Œﬁ–£—È
+  43   1        IE2   |= 1;     //‘ –Ì÷–∂œ
+  44   1        S2CON |= (1<<4);  //‘ –ÌΩ” ’
+  45   1        P_SW2 &= ~1;    //«–ªªµΩ P1.0 P1.1
+  46   1      //  P_SW2 |= 1;     //«–ªªµΩ P4.6 P4.7
+  47   1      
+  48   1        for(i=0; i<RX2_Length; i++)   RX2_Buffer[i] = 0;
+C51 COMPILER V9.00   ESP8266                                                               11/14/2018 19:53:48 PAGE 2   
+
+  49   1        B_TX2_Busy  = 0;
+  50   1        TX2_read    = 0;
+  51   1        RX2_write   = 0;
+  52   1      }
+  53          void PrintString2(u8 *puts)
+  54          {
+  55   1          for (; *puts != 0;  puts++)
+  56   1        {
+  57   2          B_TX2_Busy = 1;   //±Í÷æ∑¢ÀÕ√¶
+  58   2          S2BUF = *puts;    //∑¢“ª∏ˆ◊÷Ω⁄
+  59   2          while(B_TX2_Busy);  //µ»¥˝∑¢ÀÕÕÍ≥…
+  60   2        }
+  61   1      }
+  62          void UART2_int (void) interrupt UART2_VECTOR
+  63          {
+  64   1        if(RI2)
+  65   1        {
+  66   2          CLR_RI2();
+  67   2          RX2_Buffer[RX2_write] = S2BUF;
+  68   2          if(++RX2_write >= RX2_Length) RX2_write = 0;
+  69   2      
+  70   2        }
+  71   1      
+  72   1        if(TI2)
+  73   1        {
+  74   2          CLR_TI2();
+  75   2          B_TX2_Busy = 0;
+  76   2        }
+  77   1      
+  78   1      }
+  79          
+  80          //void WIFI(void)
+  81          //{
+  82          //  //SendString("ok1");
+  83          //  //PrintString2("WiFi");
+  84          //  
+  85          //  RX2_write = 0;PrintString2(WiFi_AT);
+  86          //  Delay_8266(2);
+  87          //  SendString(RX2_Buffer);   clear();
+  88          // // SendString("ok2");
+  89          
+  90          //  RX2_write = 0;PrintString2(WiFi_CWMODE);
+  91          //  Delay_8266(2);SendString(RX2_Buffer);  clear();
+  92          
+  93          
+  94          //  RX2_write = 0;PrintString2(WiFi_CWJAP);
+  95          //  Delay_8266(6);SendString(RX2_Buffer); clear();
+  96          
+  97          
+  98          //  RX2_write = 0;PrintString2(WiFi_CIFSR);
+  99          //  Delay_8266(3);SendString(RX2_Buffer);  clear();
+ 100          
+ 101          
+ 102          //  RX2_write = 0;PrintString2(WiFi_CIPSTART);
+ 103          //  Delay_8266(6);SendString(RX2_Buffer); clear();
+ 104          
+ 105          
+ 106          //  RX2_write = 0;PrintString2(WiFi_CIPMODE);
+ 107          //  Delay_8266(2);SendString(RX2_Buffer);  clear();
+ 108          
+ 109          
+ 110          //  RX2_write = 0;PrintString2(WiFi_CIPSEND);
+C51 COMPILER V9.00   ESP8266                                                               11/14/2018 19:53:48 PAGE 3   
+
+ 111          //  Delay_8266(2);SendString(RX2_Buffer);  clear();   
+ 112          
+ 113          
+ 114          //  RX2_write = 0;PrintString2(WiFi_CONNECT);
+ 115          //  Delay_8266(3);SendString(RX2_Buffer); clear();
+ 116          
+ 117          //    
+ 118          //}
+ 119          void clear(void)
+ 120          {  
+ 121   1          int i;
+ 122   1          for(i=0; i<RX2_Length; i++) { 
+ 123   2            RX2_Buffer[i] = 0;//«Â≥˝Ω” ’ª∫¥Ê
+ 124   2            //◊¢“‚∏¥Œª“ªœ¬»˝Ãı£¨¥Æø⁄’˝≥£π§◊˜
+ 125   2            TX2_read=0;
+ 126   2            RX2_write=0;  //∂¡–¥À˜“˝(÷∏’Î).
+ 127   2            B_TX2_Busy=0;
+ 128   2          
+ 129   2          }
+ 130   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    182    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      4    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      2    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

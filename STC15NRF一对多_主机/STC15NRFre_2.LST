@@ -1,0 +1,748 @@
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE STC15NRFRE_2
+OBJECT MODULE PLACED IN STC15NRFre_2.OBJ
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE STC15NRFre_2.c OPTIMIZE(8,SPEED) BROWSE INCDIR(.\oled;..\STC15NRFre;.\Ti
+                    -me4;.\uart2) DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          //ÊµÑé¾§ÕñÎ»11.0592MHz£¬²¨ÌØÂÊÎ»9600
+   2          //×÷ÎªNRFµÄÖ÷»ú
+   3          #include "stc15w4k.h"
+   4          #include "T4_Time.h"
+   5          #include "oled.h"
+   6          #include "T4_Time.h"
+   7          #include "esp8266.h"
+   8          #include "string.h"
+   9          #include <intrins.h>
+  10          typedef unsigned char uchar;
+  11          typedef unsigned char uint;
+  12          
+  13          /******************************STC15´®¿Ú1¶¨Ê±Æ÷1Ä£Ê½0¶¨Òå************************************/
+  14          //typedef unsigned char BYTE;
+  15          //typedef unsigned int WORD;
+  16          
+  17          #define FOSC 11059200L          //ÏµÍ³ÆµÂÊ
+  18          #define BAUD 9600             //´®¿Ú²¨ÌØÂÊ
+  19          
+  20          #define NONE_PARITY     0       //ÎŞĞ£Ñé
+  21          #define ODD_PARITY      1       //ÆæĞ£Ñé
+  22          #define EVEN_PARITY     2       //Å¼Ğ£Ñé
+  23          #define MARK_PARITY     3       //±ê¼ÇĞ£Ñé
+  24          #define SPACE_PARITY    4       //¿Õ°×Ğ£Ñé
+  25          
+  26          #define PARITYBIT EVEN_PARITY   //¶¨ÒåĞ£ÑéÎ»
+  27          
+  28          #define S1_S0 0x40              //P_SW1.6
+  29          #define S1_S1 0x80              //P_SW1.7
+  30          bit busy;
+  31          
+  32          void SendData(BYTE dat);
+  33          void SendString(char *s);
+  34          
+  35          //****************************************IO¶Ë¿Ú¶¨Òå***************************************
+  36          
+  37          sbit  MISO = P3^2;
+  38          sbit  MOSI = P3^5;
+  39          sbit  SCK  = P3^4;
+  40          sbit  CE   = P3^6;
+  41          sbit  CSN  = P3^7;
+  42          sbit  IRQ  = P3^3;
+  43          
+  44          sbit led0 = P4^3;
+  45          sbit led1 = P4^2;
+  46          //sbit led2 = P4^1;
+  47          sbit led3 = P4^0;
+  48          sbit jidianqi =P0^4;
+  49          //*********************************************NRF24L01*************************************
+  50          #define TX_ADR_WIDTH    5    // 5 uints TX address width
+  51          #define RX_ADR_WIDTH    5    // 5 uints RX address width
+  52          #define TX_PLOAD_WIDTH  32  // 20 uints TX payload
+  53          #define RX_PLOAD_WIDTH  32   // 20 uints TX payload
+  54          uint const TX_ADDRESS[TX_ADR_WIDTH]= {0x01,0x01,0x01,0x01,0x01}; //±¾µØµØÖ·   0x01,0x01,0x01,0x01,0x01¡¡¡¡
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 2   
+
+             -Ö÷»úµØÖ·
+  55          uint const RX_ADDRESS[RX_ADR_WIDTH]= {0x10,0x10,0x10,0x10,0x10}; //½ÓÊÕµØÖ· 1  0x10,0x10,0x10,0x10,0x10   
+             - ´Ó»ú£±µØÖ·
+  56          uint const RX_ADDRESS_1[RX_ADR_WIDTH]= {0x10,0x10,0x10,0x10,0x20}; //½ÓÊÕµØÖ·2    0x10,0x10,0x10,0x10,0x20 
+             -   ´Ó»ú£²µØÖ·
+  57          //***************************************NRF24L01¼Ä´æÆ÷Ö¸Áî***********************************************
+             -********
+  58          #define READ_REG        0x00   //¶ÁÅäÖÃ¼Ä´æÆ÷,µÍ5Î»Îª¼Ä´æÆ÷µØÖ·
+  59          #define WRITE_REG       0x20  //Ğ´ÅäÖÃ¼Ä´æÆ÷,µÍ5Î»Îª¼Ä´æÆ÷µØÖ·
+  60          #define RD_RX_PLOAD     0x61   // ¶ÁÈ¡½ÓÊÕÊı¾İÖ¸Áî     ¶ÁRXÓĞĞ§Êı¾İ,1~32×Ö½Ú
+  61          #define WR_TX_PLOAD     0xA0   // Ğ´´ı·¢Êı¾İÖ¸Áî     Ğ´TXÓĞĞ§Êı¾İ,1~32×Ö½Ú
+  62          #define FLUSH_TX        0xE1  // ³åÏ´·¢ËÍ FIFOÖ¸Áî     Çå³ıTX FIFO¼Ä´æÆ÷.·¢ÉäÄ£Ê½ÏÂÓÃ
+  63          #define FLUSH_RX        0xE2   // ³åÏ´½ÓÊÕ FIFOÖ¸Áî    Çå³ıRX FIFO¼Ä´æÆ÷.½ÓÊÕÄ£Ê½ÏÂÓÃ
+  64          #define REUSE_TX_PL     0xE3   // ¶¨ÒåÖØ¸´×°ÔØÊı¾İÖ¸Áî  ÖØĞÂÊ¹ÓÃÉÏÒ»°üÊı¾İ,CEÎª¸ß,Êı¾İ°ü±»²»¶Ï·¢ËÍ.
+  65          #define NOP             0xFF   // ±£Áô           ¿Õ²Ù×÷,¿ÉÒÔÓÃÀ´¶Á×´Ì¬¼Ä´æÆ÷
+  66          //*************************************SPI(nRF24L01)¼Ä´æÆ÷µØÖ·********************************************
+             -********
+  67          #define CONFIG          0x00  // ÅäÖÃÊÕ·¢×´Ì¬£¬CRCĞ£ÑéÄ£Ê½ÒÔ¼°ÊÕ·¢×´Ì¬ÏìÓ¦·½Ê½
+  68          #define EN_AA           0x01  // ×Ô¶¯Ó¦´ğ¹¦ÄÜÉèÖÃ
+  69          #define EN_RXADDR       0x02  // ¿ÉÓÃĞÅµÀÉèÖÃ
+  70          #define SETUP_AW        0x03  // ÊÕ·¢µØÖ·¿í¶ÈÉèÖÃ
+  71          #define SETUP_RETR      0x04  // ×Ô¶¯ÖØ·¢¹¦ÄÜÉèÖÃ
+  72          #define RF_CH           0x05  // ¹¤×÷ÆµÂÊÉèÖÃ
+  73          #define RF_SETUP        0x06  // ·¢ÉäËÙÂÊ¡¢¹¦ºÄ¹¦ÄÜÉèÖÃ   RF¼Ä´æÆ÷
+  74          #define STATUS          0x07  // ×´Ì¬¼Ä´æÆ÷
+  75          #define OBSERVE_TX      0x08  // ·¢ËÍ¼à²â¹¦ÄÜ
+  76          #define CD              0x09  // µØÖ·¼ì²â              ÔØ²¨¼ì²â¼Ä´æÆ÷
+  77          #define RX_ADDR_P0      0x0A  // ÆµµÀ0½ÓÊÕÊı¾İµØÖ·
+  78          #define RX_ADDR_P1      0x0B  // ÆµµÀ1½ÓÊÕÊı¾İµØÖ·
+  79          #define RX_ADDR_P2      0x0C  // ÆµµÀ2½ÓÊÕÊı¾İµØÖ·
+  80          #define RX_ADDR_P3      0x0D  // ÆµµÀ3½ÓÊÕÊı¾İµØÖ·
+  81          #define RX_ADDR_P4      0x0E  // ÆµµÀ4½ÓÊÕÊı¾İµØÖ·
+  82          #define RX_ADDR_P5      0x0F  // ÆµµÀ5½ÓÊÕÊı¾İµØÖ·
+  83          #define TX_ADDR         0x10  // ·¢ËÍµØÖ·¼Ä´æÆ÷
+  84          #define RX_PW_P0        0x11  // ½ÓÊÕÆµµÀ0½ÓÊÕÊı¾İ³¤¶È     (1~32×Ö½Ú)
+  85          #define RX_PW_P1        0x12  // ½ÓÊÕÆµµÀ0½ÓÊÕÊı¾İ³¤¶È
+  86          #define RX_PW_P2        0x13  // ½ÓÊÕÆµµÀ0½ÓÊÕÊı¾İ³¤¶È
+  87          #define RX_PW_P3        0x14  // ½ÓÊÕÆµµÀ0½ÓÊÕÊı¾İ³¤¶È
+  88          #define RX_PW_P4        0x15  // ½ÓÊÕÆµµÀ0½ÓÊÕÊı¾İ³¤¶È
+  89          #define RX_PW_P5        0x16  // ½ÓÊÕÆµµÀ0½ÓÊÕÊı¾İ³¤¶È
+  90          #define FIFO_STATUS     0x17  // FIFOÕ»ÈëÕ»³ö×´Ì¬¼Ä´æÆ÷ÉèÖÃ
+  91          //**************************************************************************************
+  92          void Delay(unsigned int s);
+  93          void inerDelay_us(unsigned char n);
+  94          void init_NRF24L01(void);
+  95          uint SPI_RW(uint uchar);
+  96          uchar SPI_Read(uchar reg);
+  97          void SetRX_Mode(void);
+  98          uint SPI_RW_Reg(uchar reg, uchar value);
+  99          uint SPI_Read_Buf(uchar reg, uchar *pBuf, uchar uchars);
+ 100          uint SPI_Write_Buf(uchar reg, uchar *pBuf, uchar uchars);
+ 101          unsigned char nRF24L01_RxPacket(unsigned char* rx_buf);
+ 102          void nRF24L01_TxPacket(unsigned char * tx_buf);
+ 103          
+ 104          uchar flag,a;
+ 105          uchar jidianqi_flag;
+ 106          uchar flag_kaisuo;
+ 107          //*****************************************³¤ÑÓÊ±*****************************************
+ 108          void Delay(unsigned int s)
+ 109          {
+ 110   1        unsigned int i;
+ 111   1        for(i=0; i<s; i++);
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 3   
+
+ 112   1        for(i=0; i<s; i++);
+ 113   1      }
+ 114          //******************************************************************************************
+ 115          uint  bdata sta;   //×´Ì¬±êÖ¾
+ 116          sbit RX_DR =sta^6;     //ÅĞ¶ÏÊÇ·ñ½ÓÊÕµ½Êı¾İ   ÈôÊÕµ½Êı¾İ Ôò±»ÖÃ1
+ 117          sbit TX_DS =sta^5;
+ 118          sbit MAX_RT =sta^4;
+ 119          /******************************************************************************************
+ 120          /*ÑÓÊ±º¯Êı
+ 121          /******************************************************************************************/
+ 122          void inerDelay_us(unsigned char n)
+ 123          {
+ 124   1        for(;n>0;n--)
+ 125   1          _nop_();
+ 126   1      }
+ 127          //****************************************************************************************
+ 128          /*NRF24L01³õÊ¼»¯
+ 129          //***************************************************************************************/
+ 130          void init_NRF24L01(void)
+ 131          {
+ 132   1          inerDelay_us(100);
+ 133   1          CE=0;    // chip enable
+ 134   1          CSN=1;   // Spi disable
+ 135   1          SCK=0;   // Spi clock line init high
+ 136   1        SPI_Write_Buf(WRITE_REG + TX_ADDR, TX_ADDRESS, TX_ADR_WIDTH);    // Ğ´±¾µØµØÖ·
+ 137   1        SPI_Write_Buf(WRITE_REG + RX_ADDR_P0, RX_ADDRESS, RX_ADR_WIDTH); // Ğ´½ÓÊÕ¶ËµØÖ·
+ 138   1      
+ 139   1        SPI_RW_Reg(WRITE_REG + EN_AA, 0x01);      //  ÆµµÀ0×Ô¶¯ ACKÓ¦´ğÔÊĞí½ûÖ¹
+ 140   1        SPI_RW_Reg(WRITE_REG + EN_RXADDR, 0x01);  //  ÔÊĞí½ÓÊÕµØÖ·Ö»ÓĞÆµµÀ0£¬Èç¹ûĞèÒª¶àÆµµÀ¿ÉÒÔ²Î¿¼Page21  
+ 141   1        
+ 142   1        SPI_RW_Reg(WRITE_REG + SETUP_AW, 0x02); // Setup address width=5 bytes    °²×°µØÖ·¿í¶È£½5×Ö½Ú
+ 143   1        SPI_RW_Reg(WRITE_REG + RF_CH, 0);        //   ÉèÖÃĞÅµÀ¹¤×÷Îª2.4GHZ£¬ÊÕ·¢±ØĞëÒ»ÖÂ
+ 144   1        SPI_RW_Reg(WRITE_REG + RX_PW_P0, RX_PLOAD_WIDTH); //ÉèÖÃ½ÓÊÕÊı¾İ³¤¶È£¬±¾´ÎÉèÖÃÎª32×Ö½Ú
+ 145   1        SPI_RW_Reg(WRITE_REG + RF_SETUP, 0x07);     //ÉèÖÃ·¢ÉäËÙÂÊÎª1MHZ£¬·¢Éä¹¦ÂÊÎª×î´óÖµ0dB
+ 146   1        SPI_RW_Reg(WRITE_REG + CONFIG, 0x0f);     // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC £¬Ö÷½ÓÊÕ
+ 147   1      }
+ 148          //****************************************************************************************
+ 149          /*NRF24L01³õÊ¼»¯
+ 150          //***************************************************************************************/
+ 151          void init_NRF24L01_1(void)
+ 152          {
+ 153   1          inerDelay_us(100);
+ 154   1          CE=0;    // chip enable
+ 155   1          CSN=1;   // Spi disable
+ 156   1          SCK=0;   // Spi clock line init high
+ 157   1        SPI_Write_Buf(WRITE_REG + TX_ADDR, TX_ADDRESS, TX_ADR_WIDTH);    // Ğ´±¾µØµØÖ·
+ 158   1        SPI_Write_Buf(WRITE_REG + RX_ADDR_P0, RX_ADDRESS, RX_ADR_WIDTH); // Ğ´½ÓÊÕ¶ËµØÖ·
+ 159   1      
+ 160   1        SPI_RW_Reg(WRITE_REG + EN_AA, 0x01);      //  ÆµµÀ0×Ô¶¯ ACKÓ¦´ğÔÊĞí½ûÖ¹
+ 161   1        SPI_RW_Reg(WRITE_REG + EN_RXADDR, 0x01);  //  ÔÊĞí½ÓÊÕµØÖ·Ö»ÓĞÆµµÀ0£¬Èç¹ûĞèÒª¶àÆµµÀ¿ÉÒÔ²Î¿¼Page21  
+ 162   1        
+ 163   1        SPI_RW_Reg(WRITE_REG + SETUP_AW, 0x02); // Setup address width=5 bytes    °²×°µØÖ·¿í¶È£½5×Ö½Ú
+ 164   1        SPI_RW_Reg(WRITE_REG + RF_CH, 40);        //   ÉèÖÃĞÅµÀ¹¤×÷Îª2.4GHZ£¬ÊÕ·¢±ØĞëÒ»ÖÂ
+ 165   1        SPI_RW_Reg(WRITE_REG + RX_PW_P0, RX_PLOAD_WIDTH); //ÉèÖÃ½ÓÊÕÊı¾İ³¤¶È£¬±¾´ÎÉèÖÃÎª32×Ö½Ú
+ 166   1        SPI_RW_Reg(WRITE_REG + RF_SETUP, 0x07);     //ÉèÖÃ·¢ÉäËÙÂÊÎª1MHZ£¬·¢Éä¹¦ÂÊÎª×î´óÖµ0dB
+ 167   1        SPI_RW_Reg(WRITE_REG + CONFIG, 0x0f);     // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC £¬Ö÷½ÓÊÕ
+ 168   1      }
+ 169          //****************************************************************************************
+ 170          //****************************************************************************************
+ 171          /*NRF24L01·¢ËÍ³õÊ¼»¯
+ 172          //***************************************************************************************/
+ 173          void init_NRF24L01_Send(void)
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 4   
+
+ 174          {
+ 175   1         /*
+ 176   1          Á½¸önrf24l01Í¨ĞÅ£¬ĞèÒªÂú×ã3¸öÌõ¼şÏàÍ¬£º
+ 177   1          1.ÆµµÀÏàÍ¬£¨ÉèÖÃÆµµÀ¼Ä´æÆ÷RF_CH£©
+ 178   1          2.µØÖ·ÏàÍ¬£¨ÉèÖÃTX_ADDRºÍRX_ADDR_P0ÏàÍ¬£©
+ 179   1          3.Ã¿´Î·¢ËÍ½ÓÊÕµÄ×Ö½ÚÊıÏàÍ¬£¨Èç¹ûÉèÖÃÁËÍ¨µÀµÄÓĞĞ§Êı¾İ¿í¶ÈÎªn£¬ÄÇÃ´Ã¿´Î·¢ËÍµÄ×Ö½ÚÊıÒ²±ØĞëÎªn£¬µ±È»£¬n<=32£
+             -©
+ 180   1        */
+ 181   1          inerDelay_us(100);
+ 182   1          CE=0;    // chip enable  Ğ¾Æ¬Ê¹ÄÜ
+ 183   1          CSN=1;   // Spi disable  SPI½ûÓÃ
+ 184   1          SCK=0;   // Spi clock line init high   SPIÊ±ÖÓÏß
+ 185   1          IRQ=1;
+ 186   1          SPI_Write_Buf(WRITE_REG + TX_ADDR, RX_ADDRESS, TX_ADR_WIDTH);    // Ğ´±¾µØµØÖ·     Óë½ÓÊÕ´úÂëµÄ½ÓÊÕ¶ËµØ
+             -Ö·ÏàÍ¬
+ 187   1          SPI_Write_Buf(WRITE_REG + RX_ADDR_P0, TX_ADDRESS, RX_ADR_WIDTH); // Ğ´½ÓÊÕ¶ËµØÖ·
+ 188   1        
+ 189   1        //ÓĞÁËÒÔÏÂÕâÈı¸öÅäÖÃ£¬·¢ËÍ·½µÄÁ÷³Ì¾Í±ä³ÉÁË·¢ËÍ-´¥·¢ÖĞ¶Ï¡£ÕâÑù¾ÍÅ×¿ªÁË½ÓÊÕ·½£¬¿ÉÒÔ×¨ĞÄÈ¥µ÷ÊÔ·¢ËÍ
+ 190   1      //  SPI_RW_Reg(WRITE_REG + EN_AA, 0x00);                 // Ê§ÄÜÍ¨µÀ0×Ô¶¯Ó¦´ğ
+ 191   1      //  SPI_RW_Reg(WRITE_REG + EN_RXADDR, 0x00);            // Ê§ÄÜ½ÓÊÕÍ¨µÀ0
+ 192   1      //  SPI_RW_Reg(WRITE_REG + SETUP_RETR, 0x00);          // Ê§ÄÜ×Ô¶¯ÖØ·¢
+ 193   1        
+ 194   1        //ÒÔÉÏÈı¾äÖ»ÊÇµ÷ÊÔ·½·¨£¬×îÖÕµÄ²úÆ·Èç¹û²»¼ÓÉÏÓ¦´ğºÍÖØ·¢µÄ»°ÄÇÃ´Êı¾İµÄÎÈ¶¨ĞÔÊÇºÜÄÑ±£Ö¤µÄ£¬ËùÒÔÔÚ»ù±¾µÄÍ¨Ñ¶½
+             -¨Á¢Ö®ºó¾ÍÒª°Ñ·¢ËÍµÄÅäÖÃ¸ÄÎªÒÔÏÂÕâÈı¸öÅäÖÃ 
+ 195   1        //ÕâÑù·¢ËÍºÍ½ÓÊÕ¾Í½øÈëÁËÒ»¸ö±ê×¼×´Ì¬£¬·¢ËÍ-µÈÓ¦´ğ-£¨×Ô¶¯ÖØ·¢£©-´¥·¢ÖĞ¶Ï£»½ÓÊÕ-Ó¦´ğ-´¥·¢ÖĞ¶Ï£¬Ò»ÇĞ°´²¿¾Í°à
+             -£¬³ÌĞòÀï¼ÓÉÏ×Ô¼ºµÄÓ¦ÓÃ²¿·Ö¾ÍÄÜÊµÏÖºÜ¶à¹¦ÄÜÁË
+ 196   1          SPI_RW_Reg(WRITE_REG + EN_AA, 0x01);               // Ê¹ÄÜ½ÓÊÕÍ¨µÀ0×Ô¶¯Ó¦´ğ
+ 197   1          SPI_RW_Reg(WRITE_REG + EN_RXADDR, 0x01);           // Ê¹ÄÜ½ÓÊÕÍ¨µÀ0               
+ 198   1          SPI_RW_Reg(WRITE_REG + SETUP_RETR, 0x1a);          // ×Ô¶¯ÖØ·¢10´Î£¬¼ä¸ô500us
+ 199   1        
+ 200   1          SPI_RW_Reg(WRITE_REG + SETUP_AW, 0x02); // Setup address width=5 bytes  °²×°µØÖ·¿í¶È£½5×Ö½Ú   
+ 201   1          SPI_RW_Reg(WRITE_REG + RF_CH, 0);             //ÉèÖÃĞÅµÀ¹¤×÷Îª2.4GHZ£¬ÊÕ·¢±ØĞëÒ»ÖÂ
+ 202   1          SPI_RW_Reg(WRITE_REG + RX_PW_P0, TX_PLOAD_WIDTH);   //ÉèÖÃ½ÓÊÕÊı¾İ³¤¶È£¬±¾´ÎÉèÖÃÎª32×Ö½Ú
+ 203   1          SPI_RW_Reg(WRITE_REG + RF_SETUP, 0x07);         //ÉèÖÃ·¢ÉäËÙÂÊÎª2MHZ£¬·¢Éä¹¦ÂÊÎª×î´óÖµ0dB
+ 204   1          SPI_RW_Reg(WRITE_REG + CONFIG, 0x0e);           // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC£¬·¢ÉäÄ£Ê½
+ 205   1      }
+ 206          //****************************************************************************************
+ 207          /*NRF24L01·¢ËÍ³õÊ¼»¯
+ 208          //***************************************************************************************/
+ 209          void init_NRF24L01_Send_1(void)
+ 210          {
+ 211   1         /*
+ 212   1          Á½¸önrf24l01Í¨ĞÅ£¬ĞèÒªÂú×ã3¸öÌõ¼şÏàÍ¬£º
+ 213   1          1.ÆµµÀÏàÍ¬£¨ÉèÖÃÆµµÀ¼Ä´æÆ÷RF_CH£©
+ 214   1          2.µØÖ·ÏàÍ¬£¨ÉèÖÃTX_ADDRºÍRX_ADDR_P0ÏàÍ¬£©
+ 215   1          3.Ã¿´Î·¢ËÍ½ÓÊÕµÄ×Ö½ÚÊıÏàÍ¬£¨Èç¹ûÉèÖÃÁËÍ¨µÀµÄÓĞĞ§Êı¾İ¿í¶ÈÎªn£¬ÄÇÃ´Ã¿´Î·¢ËÍµÄ×Ö½ÚÊıÒ²±ØĞëÎªn£¬µ±È»£¬n<=32£
+             -©
+ 216   1        */
+ 217   1          inerDelay_us(100);
+ 218   1          CE=0;    // chip enable  Ğ¾Æ¬Ê¹ÄÜ
+ 219   1          CSN=1;   // Spi disable  SPI½ûÓÃ
+ 220   1          SCK=0;   // Spi clock line init high   SPIÊ±ÖÓÏß
+ 221   1          IRQ=1;
+ 222   1          SPI_Write_Buf(WRITE_REG + TX_ADDR, TX_ADDRESS, TX_ADR_WIDTH);    // Ğ´±¾µØµØÖ·     Óë½ÓÊÕ´úÂëµÄ½ÓÊÕ¶ËµØ
+             -Ö·ÏàÍ¬
+ 223   1          SPI_Write_Buf(WRITE_REG + RX_ADDR_P0, RX_ADDRESS_1, RX_ADR_WIDTH); // Ğ´½ÓÊÕ¶ËµØÖ·
+ 224   1        
+ 225   1        //ÓĞÁËÒÔÏÂÕâÈı¸öÅäÖÃ£¬·¢ËÍ·½µÄÁ÷³Ì¾Í±ä³ÉÁË·¢ËÍ-´¥·¢ÖĞ¶Ï¡£ÕâÑù¾ÍÅ×¿ªÁË½ÓÊÕ·½£¬¿ÉÒÔ×¨ĞÄÈ¥µ÷ÊÔ·¢ËÍ
+ 226   1      //  SPI_RW_Reg(WRITE_REG + EN_AA, 0x00);                 // Ê§ÄÜÍ¨µÀ0×Ô¶¯Ó¦´ğ
+ 227   1      //  SPI_RW_Reg(WRITE_REG + EN_RXADDR, 0x00);            // Ê§ÄÜ½ÓÊÕÍ¨µÀ0
+ 228   1      //  SPI_RW_Reg(WRITE_REG + SETUP_RETR, 0x00);          // Ê§ÄÜ×Ô¶¯ÖØ·¢
+ 229   1        
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 5   
+
+ 230   1        //ÒÔÉÏÈı¾äÖ»ÊÇµ÷ÊÔ·½·¨£¬×îÖÕµÄ²úÆ·Èç¹û²»¼ÓÉÏÓ¦´ğºÍÖØ·¢µÄ»°ÄÇÃ´Êı¾İµÄÎÈ¶¨ĞÔÊÇºÜÄÑ±£Ö¤µÄ£¬ËùÒÔÔÚ»ù±¾µÄÍ¨Ñ¶½
+             -¨Á¢Ö®ºó¾ÍÒª°Ñ·¢ËÍµÄÅäÖÃ¸ÄÎªÒÔÏÂÕâÈı¸öÅäÖÃ 
+ 231   1        //ÕâÑù·¢ËÍºÍ½ÓÊÕ¾Í½øÈëÁËÒ»¸ö±ê×¼×´Ì¬£¬·¢ËÍ-µÈÓ¦´ğ-£¨×Ô¶¯ÖØ·¢£©-´¥·¢ÖĞ¶Ï£»½ÓÊÕ-Ó¦´ğ-´¥·¢ÖĞ¶Ï£¬Ò»ÇĞ°´²¿¾Í°à
+             -£¬³ÌĞòÀï¼ÓÉÏ×Ô¼ºµÄÓ¦ÓÃ²¿·Ö¾ÍÄÜÊµÏÖºÜ¶à¹¦ÄÜÁË
+ 232   1          SPI_RW_Reg(WRITE_REG + EN_AA, 0x01);               // Ê¹ÄÜ½ÓÊÕÍ¨µÀ0×Ô¶¯Ó¦´ğ
+ 233   1          SPI_RW_Reg(WRITE_REG + EN_RXADDR, 0x01);           // Ê¹ÄÜ½ÓÊÕÍ¨µÀ0               
+ 234   1          SPI_RW_Reg(WRITE_REG + SETUP_RETR, 0x1a);          // ×Ô¶¯ÖØ·¢10´Î£¬¼ä¸ô500us
+ 235   1        
+ 236   1          SPI_RW_Reg(WRITE_REG + SETUP_AW, 0x02); // Setup address width=5 bytes  °²×°µØÖ·¿í¶È£½5×Ö½Ú   
+ 237   1          SPI_RW_Reg(WRITE_REG + RF_CH, 40);              //ÉèÖÃĞÅµÀ¹¤×÷Îª2.4GHZ£¬ÊÕ·¢±ØĞëÒ»ÖÂ
+ 238   1          SPI_RW_Reg(WRITE_REG + RX_PW_P0, TX_PLOAD_WIDTH);   //ÉèÖÃ½ÓÊÕÊı¾İ³¤¶È£¬±¾´ÎÉèÖÃÎª32×Ö½Ú
+ 239   1          SPI_RW_Reg(WRITE_REG + RF_SETUP, 0x07);         //ÉèÖÃ·¢ÉäËÙÂÊÎª2MHZ£¬·¢Éä¹¦ÂÊÎª×î´óÖµ0dB
+ 240   1          SPI_RW_Reg(WRITE_REG + CONFIG, 0x0e);           // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC£¬·¢ÉäÄ£Ê½
+ 241   1      }
+ 242          /****************************************************************************************************
+ 243          /*º¯Êı£ºuint SPI_RW(uint uchar)
+ 244          /*¹¦ÄÜ£ºNRF24L01µÄSPIĞ´Ê±Ğò
+ 245          /****************************************************************************************************/
+ 246          uint SPI_RW(uint uchar)
+ 247          {
+ 248   1      uint bit_ctr;
+ 249   1          for(bit_ctr=0;bit_ctr<8;bit_ctr++) // output 8-bit
+ 250   1          {
+ 251   2            MOSI = (uchar & 0x80);         // output 'uchar', MSB to MOSI   Êä³ö¡°uchar¡±£¬MSBµ½MOSI
+ 252   2            uchar = (uchar << 1);           // shift next bit into MSB..    ½«ÏÂÒ»Î»ÒÆµ½MSB
+ 253   2            SCK = 1;                      // Set SCK high..         ÉèÖÃSCK¸ß¡£
+ 254   2            uchar |= MISO;           // capture current MISO bit        »ñÈ¡µ±Ç° MISO bit
+ 255   2            SCK = 0;                // ..then set SCK low again       È»ºóÔÙ´ÎÉèÖÃSCKµÍµçÆ½
+ 256   2          }
+ 257   1          return(uchar);               // return read uchar           ·µ»Ø¶ÁÈ¡uchar
+ 258   1      }
+ 259          /****************************************************************************************************
+ 260          /*º¯Êı£ºuchar SPI_Read(uchar reg)
+ 261          /*¹¦ÄÜ£ºNRF24L01µÄSPIÊ±Ğò
+ 262          /****************************************************************************************************/
+ 263          uchar SPI_Read(uchar reg)
+ 264          {
+ 265   1        uchar reg_val;
+ 266   1        
+ 267   1        CSN = 0;                // CSN low, initialize SPI communication... CSNµÍ£¬³õÊ¼»¯SPIÍ¨ĞÅ
+ 268   1        SPI_RW(reg);            // Select register to read from..     Ğ´¼Ä´æÆ÷µØÖ·  Ñ¡Ôñ¼Ä´æÆ÷¶ÁÈ¡
+ 269   1        reg_val = SPI_RW(0);    // ..then read registervalue        È»ºó¶ÁÈ¡×¢²áÖµ Ğ´Èë¶Á¼Ä´æÆ÷Ö¸Áî
+ 270   1        CSN = 1;                // CSN high, terminate SPI communication  CSN¸ß£¬ÖÕÖ¹SPIÍ¨ĞÅ
+ 271   1        
+ 272   1        return(reg_val);        // return register value          ·µ»Ø¼Ä´æÆ÷Öµ
+ 273   1      }
+ 274          /****************************************************************************************************/
+ 275          /*¹¦ÄÜ£ºNRF24L01¶ÁĞ´¼Ä´æÆ÷º¯Êı
+ 276          /****************************************************************************************************/
+ 277          uint SPI_RW_Reg(uchar reg, uchar value)
+ 278          {
+ 279   1        uint status;
+ 280   1        
+ 281   1        CSN = 0;                   // CSN low, init SPI transaction   CSNÖÃµÍ ½øÈëSPIÍ¨ĞÅ
+ 282   1        status = SPI_RW(reg);      // select register         Ñ¡Ôñ¼Ä´æÆ÷
+ 283   1        SPI_RW(value);             // ..and write value to it..     ²¢½«ÆäĞ´ÈëÖµ
+ 284   1        CSN = 1;                   // CSN high again          CSNÔÙ¸ß                                 
+ 285   1        return(status);            // return nRF24L01 status uchar    ·µ»ØnRF24L01×´Ì¬uchar
+ 286   1      }
+ 287          /****************************************************************************************************/
+ 288          /*º¯Êı£ºuint SPI_Read_Buf(uchar reg, uchar *pBuf, uchar uchars)
+ 289          /*¹¦ÄÜ: ÓÃÓÚ¶ÁÊı¾İ£¬reg£ºÎª¼Ä´æÆ÷µØÖ·£¬pBuf£ºÎª´ı¶Á³öÊı¾İµØÖ·£¬uchars£º¶Á³öÊı¾İµÄ¸öÊı
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 6   
+
+ 290          /****************************************************************************************************/
+ 291          uint SPI_Read_Buf(uchar reg, uchar *pBuf, uchar uchars)
+ 292          {
+ 293   1        uint status,uchar_ctr;
+ 294   1        
+ 295   1        CSN = 0;                      // Set CSN low, init SPI tranaction  CSNÖÃµÍ ½øÈëSPIÍ¨ĞÅ
+ 296   1        status = SPI_RW(reg);         // Select register to write to and read status uchar Ñ¡Ôñ¼Ä´æÆ÷Ğ´ÈëºÍ¶ÁÈ¡×´
+             -Ì¬uCHAR  Ğ´ÈëÒª¶ÁÈ¡µÄ¼Ä´æÆ÷µØÖ·
+ 297   1        
+ 298   1        for(uchar_ctr=0;uchar_ctr<uchars;uchar_ctr++)
+ 299   1          pBuf[uchar_ctr] = SPI_RW(0);    //
+ 300   1        
+ 301   1        CSN = 1;                           
+ 302   1        
+ 303   1        return(status);                    // return nRF24L01 status uchar
+ 304   1      }
+ 305          /*********************************************************************************************************
+ 306          /*º¯Êı£ºuint SPI_Write_Buf(uchar reg, uchar *pBuf, uchar uchars)
+ 307          /*¹¦ÄÜ: ÓÃÓÚĞ´Êı¾İ£ºÎª¼Ä´æÆ÷µØÖ·£¬pBuf£ºÎª´ıĞ´ÈëÊı¾İµØÖ·£¬uchars£ºĞ´ÈëÊı¾İµÄ¸öÊı
+ 308          /*********************************************************************************************************
+             -/
+ 309          uint SPI_Write_Buf(uchar reg, uchar *pBuf, uchar uchars)
+ 310          {
+ 311   1        uint status,uchar_ctr;
+ 312   1        
+ 313   1        CSN = 0;            //SPIÊ¹ÄÜ      
+ 314   1        status = SPI_RW(reg);   
+ 315   1        for(uchar_ctr=0; uchar_ctr<uchars; uchar_ctr++) //
+ 316   1          SPI_RW(*pBuf++);
+ 317   1        CSN = 1;           //¹Ø±ÕSPI
+ 318   1        return(status);    //
+ 319   1      }
+ 320          /****************************************************************************************************/
+ 321          /*º¯Êı£ºvoid SetRX_Mode(void)
+ 322          /*¹¦ÄÜ£ºÊı¾İ½ÓÊÕÅäÖÃ
+ 323          /****************************************************************************************************/
+ 324          void SetRX_Mode(void)
+ 325          {
+ 326   1        CE=0;
+ 327   1        SPI_RW_Reg(WRITE_REG + CONFIG, 0x0f);     // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC £¬Ö÷½ÓÊÕ
+ 328   1        CE = 1;
+ 329   1        inerDelay_us(130);
+ 330   1      }
+ 331          /****************************************************************************************************/
+ 332          /*º¯Êı£ºvoid SetTX_Mode(void)
+ 333          /*¹¦ÄÜ£ºÊı¾İ·¢ËÍÅäÖÃ
+ 334          /****************************************************************************************************/
+ 335          void SetTX_Mode(void)
+ 336          {
+ 337   1        CE=0;
+ 338   1        SPI_RW_Reg(WRITE_REG + CONFIG, 0x0f);     // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC £¬Ö÷½ÓÊÕ
+ 339   1        CE = 1;
+ 340   1        inerDelay_us(200);
+ 341   1      }
+ 342          /******************************************************************************************************/
+ 343          /*º¯Êı£ºunsigned char nRF24L01_RxPacket(unsigned char* rx_buf)
+ 344          /*¹¦ÄÜ£ºÊı¾İ¶ÁÈ¡ºó·ÅÈçrx_buf½ÓÊÕ»º³åÇøÖĞ
+ 345          /******************************************************************************************************/
+ 346          unsigned char nRF24L01_RxPacket(unsigned char* rx_buf)
+ 347          {
+ 348   1          unsigned char revale=0;
+ 349   1        sta=SPI_Read(STATUS);   // ¶ÁÈ¡×´Ì¬¼Ä´æÆäÀ´ÅĞ¶ÏÊı¾İ½ÓÊÕ×´¿ö
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 7   
+
+ 350   1        if(RX_DR)         // ÅĞ¶ÏÊÇ·ñ½ÓÊÕµ½Êı¾İ
+ 351   1        {
+ 352   2             CE = 0;        //SPIÊ¹ÄÜ
+ 353   2           SPI_Read_Buf(RD_RX_PLOAD,rx_buf,TX_PLOAD_WIDTH);// read receive payload from RX_FIFO buffer  ´ÓRXXFIFO»º
+             -³åÆ÷¶ÁÈ¡½ÓÊÕÓĞĞ§ÔØºÉ
+ 354   2           revale =1;       //¶ÁÈ¡Êı¾İÍê³É±êÖ¾
+ 355   2          flag_kaisuo = 1;
+ 356   2        }
+ 357   1        SPI_RW_Reg(WRITE_REG+STATUS,sta);           //½ÓÊÕµ½Êı¾İºóRX_DR,TX_DS,MAX_PT¶¼ÖÃ¸ßÎª1£¬Í¨¹ıĞ´1À´Çå³şÖĞ¶Ï±êÖ¾
+ 358   1        return revale;
+ 359   1      }
+ 360          /*********************************************************************************************************
+             -**
+ 361          /*º¯Êı£ºvoid nRF24L01_TxPacket(unsigned char * tx_buf)
+ 362          /*¹¦ÄÜ£º·¢ËÍ tx_bufÖĞÊı¾İ
+ 363          /*********************************************************************************************************
+             -*/
+ 364          
+ 365          void nRF24L01_TxPacket(unsigned char * tx_buf)
+ 366          {
+ 367   1        CE=0;         //StandBy IÄ£Ê½
+ 368   1        SPI_Write_Buf(WRITE_REG + RX_ADDR_P0, RX_ADDRESS, RX_ADR_WIDTH); // ×°ÔØ½ÓÊÕ¶ËµØÖ·
+ 369   1        SPI_Write_Buf(WR_TX_PLOAD, tx_buf, TX_PLOAD_WIDTH);         // ×°ÔØÊı¾İ
+ 370   1        SPI_RW_Reg(WRITE_REG + CONFIG, 0x0e);                 // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC£¬Ö÷·¢ËÍ
+ 371   1        CE=1;         //ÖÃ¸ßCE£¬¼¤·¢Êı¾İ·¢ËÍ
+ 372   1        inerDelay_us(10);
+ 373   1      }
+ 374          /*********************************************************************************************************
+             -**
+ 375          /*º¯Êı£ºvoid nRF24L01_TxPacket(unsigned char * tx_buf)
+ 376          /*¹¦ÄÜ£º·¢ËÍ tx_bufÖĞÊı¾İ
+ 377          /*********************************************************************************************************
+             -*/
+ 378          
+ 379          void nRF24L01_TxPacket_1(unsigned char * tx_buf)
+ 380          {
+ 381   1        CE=0;         //StandBy IÄ£Ê½
+ 382   1        SPI_Write_Buf(WRITE_REG + RX_ADDR_P0, TX_ADDRESS, RX_ADR_WIDTH); // ×°ÔØ½ÓÊÕ¶ËµØÖ·
+ 383   1        SPI_Write_Buf(WR_TX_PLOAD, tx_buf, TX_PLOAD_WIDTH);         // ×°ÔØÊı¾İ
+ 384   1        SPI_RW_Reg(WRITE_REG + CONFIG, 0x0e);                 // IRQÊÕ·¢Íê³ÉÖĞ¶ÏÏìÓ¦£¬16Î»CRC£¬Ö÷·¢ËÍ
+ 385   1        CE=1;         //ÖÃ¸ßCE£¬¼¤·¢Êı¾İ·¢ËÍ
+ 386   1        inerDelay_us(10);
+ 387   1      }
+ 388          
+ 389          ///******* ÖĞ¶Ï³õÊ¼»¯  ******/
+ 390          //void init_com(void)
+ 391          //{
+ 392          //    TMOD=0x20;            //¶¨Ê±Æ÷1,8Î»×Ô¶¯ÖØ
+ 393          //  TH1=0xfd;
+ 394          //  TL1=0xfd;
+ 395          //  TR1=1;
+ 396          //  REN=1;              //ÔÊĞí´®¿ÚÖĞ¶Ï
+ 397          //  SM0=0;              //ÉèÖÃ´®¿Ú¹¤×÷·½Ê½Îª1
+ 398          //  SM1=1;
+ 399          //  EA=1;             //¿ª×ÜÖĞ¶Ï
+ 400          //  ES=1; 
+ 401          //}             
+ 402          //void SendByte(unsigned char dat)     //·¢ËÍÒ»¸ö×Ö½ÚµÄÊı¾İ
+ 403          //{
+ 404          //   SBUF = dat;
+ 405          //   while(!TI);
+ 406          //      TI = 0;
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 8   
+
+ 407          //}
+ 408          //void SendStr(unsigned char *s)      //·¢ËÍÒ»¸ö×Ö·û´®µÄÊı¾İ
+ 409          //{
+ 410          //   while(*s!='\0')            // \0 ±íÊ¾×Ö·û´®½áÊø±êÖ¾£¬
+ 411          //                            //Í¨¹ı¼ì²âÊÇ·ñ×Ö·û´®Ä©Î²
+ 412          //   {
+ 413          //      SendByte(*s);
+ 414          //      s++;
+ 415          //   }
+ 416          //}
+ 417          void uart1(void)
+ 418          {
+ 419   1          P0M0 = 0x01;//P0ÎªÍÆÍì
+ 420   1          P0M1 = 0x00;
+ 421   1          P1M0 = 0x00;
+ 422   1          P1M1 = 0x00;
+ 423   1          P2M0 = 0x00;
+ 424   1          P2M1 = 0x00;
+ 425   1          P3M0 = 0x00;
+ 426   1          P3M1 = 0x00;
+ 427   1          P4M0 = 0x00;
+ 428   1          P4M1 = 0x00;
+ 429   1          P5M0 = 0x00;
+ 430   1          P5M1 = 0x00;
+ 431   1          P6M0 = 0x00;
+ 432   1          P6M1 = 0x00;
+ 433   1          P7M0 = 0x00;
+ 434   1          P7M1 = 0x00;
+ 435   1      
+ 436   1          ACC = P_SW1;
+ 437   1          ACC &= ~(S1_S0 | S1_S1);    //S1_S0=0 S1_S1=0
+ 438   1          P_SW1 = ACC;                //(P3.0/RxD, P3.1/TxD)
+ 439   1      
+ 440   1        #if (PARITYBIT == NONE_PARITY)
+                  SCON = 0x50;                //8Î»¿É±ä²¨ÌØÂÊ
+              #elif (PARITYBIT == ODD_PARITY) || (PARITYBIT == EVEN_PARITY) || (PARITYBIT == MARK_PARITY)
+ 443   1          SCON = 0xda;                //9Î»¿É±ä²¨ÌØÂÊ,Ğ£ÑéÎ»³õÊ¼Îª1
+ 444   1      #elif (PARITYBIT == SPACE_PARITY)
+                  SCON = 0xd2;                //9Î»¿É±ä²¨ÌØÂÊ,Ğ£ÑéÎ»³õÊ¼Îª0
+              #endif
+ 447   1      
+ 448   1          AUXR = 0x40;                //¶¨Ê±Æ÷1Îª1TÄ£Ê½
+ 449   1          TMOD = 0x00;                //¶¨Ê±Æ÷1ÎªÄ£Ê½0(16Î»×Ô¶¯ÖØÔØ)
+ 450   1          TL1 = (65536 - (FOSC/4/BAUD));   //ÉèÖÃ²¨ÌØÂÊÖØ×°Öµ
+ 451   1          TH1 = (65536 - (FOSC/4/BAUD))>>8;
+ 452   1          TR1 = 1;                    //¶¨Ê±Æ÷1¿ªÊ¼Æô¶¯
+ 453   1          ES = 1;                     //Ê¹ÄÜ´®¿ÚÖĞ¶Ï
+ 454   1          EA = 1;
+ 455   1      }
+ 456           /********************************************/
+ 457          /* º¯Êı¹¦ÄÜ£º¼ì²â24L01ÊÇ·ñ´æÔÚ */
+ 458          /* ·µ»ØÖµ£» 1 ´æÔÚ */
+ 459          /* 2 ²»´æÔÚ */
+ 460          /********************************************/
+ 461          uchar NRF24L01_Check(void)
+ 462          {
+ 463   1      int NRF_CE=0;
+ 464   1      uchar check_in_buf[5]={0x11,0x22,0x33,0x44,0x55};
+ 465   1      uchar check_out_buf[5]={0x00};
+ 466   1      //SendStr("check Init\r\n");
+ 467   1      
+ 468   1      
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 9   
+
+ 469   1      SPI_Write_Buf(WRITE_REG+TX_ADDR, check_in_buf, 5);
+ 470   1      
+ 471   1      SPI_Read_Buf(READ_REG+TX_ADDR, check_out_buf, 5);
+ 472   1      
+ 473   1      if((check_out_buf[0] == 0x11)&&\
+ 474   1      (check_out_buf[1] == 0x22)&&\
+ 475   1      (check_out_buf[2] == 0x33)&&\
+ 476   1      (check_out_buf[3] == 0x44)&&\
+ 477   1      (check_out_buf[4] == 0x55))return 1;
+ 478   1      else return 2;
+ 479   1      }
+ 480          //************************************Ö÷º¯Êı************************************************************
+ 481          void main(void)
+ 482          {
+ 483   1        uchar temp[]={"001"};
+ 484   1        uchar a;  //NRFÄ£¿éÊÇ·ñ´æÔÚ±êÖ¾Î»
+ 485   1        uchar i;
+ 486   1        uchar RxBuf[2];         //¶¨Òå½ÓÊÕÊı¾İµÄÊı×é
+ 487   1        uchar RxBuf1[2];          //¶¨Òå½ÓÊÕÊı¾İµÄÊı×é
+ 488   1        init_NRF24L01();          //NRF½ÓÊÜ³õÊ¼»¯
+ 489   1        init_NRF24L01_1();          //NRF½ÓÊÜ³õÊ¼»¯
+ 490   1        uart1();
+ 491   1        UART2_config(2);
+ 492   1        Init_T4();       //¶¨Ê±Æ÷³õÊ¼»¯
+ 493   1        EA = 1;           //´ò¿ªÈ«¾ÖÖĞ¶Ï
+ 494   1        OLED_Init();      //³õÊ¼»¯OLED  
+ 495   1        OLED_Clear(); 
+ 496   1        
+ 497   1        
+ 498   1        a=NRF24L01_Check();//¼ì²âNRF±êÖ¾Î»£¬NRF´æÔÚled1ºÍled3ÁÁ£¬·ñÔòled1,2ÁÁ¡£
+ 499   1        if(a == 1){
+ 500   2              led0 = 0;
+ 501   2              led3 =0;
+ 502   2            }
+ 503   1        else if(a == 2){
+ 504   2              led1=0;
+ 505   2              led2=0;     
+ 506   2            }
+ 507   1        else{
+ 508   2              led0=0;led1=0;led2=0;led3=0;
+ 509   2            }
+ 510   1        Delay(6000);
+ 511   1        
+ 512   1        
+ 513   1        
+ 514   1        while(1)
+ 515   1        {
+ 516   2          
+ 517   2          unsigned char TxBuf[20]={0x36,0x36};    //½«Òª·¢ËÍµÄÊı¾İ·ÅÔÚÊı×éÖĞ    
+ 518   2          unsigned char TxBuf_1[20]={0x37,0x37};    //½«Òª·¢ËÍµÄÊı¾İ·ÅÔÚÊı×éÖĞ
+ 519   2            jidianqi  = 1;
+ 520   2          init_NRF24L01();
+ 521   2          SetRX_Mode();   //ÎŞ°´¼ü°´ÏÂÎª½ÓÊÜÄ£Ê½
+ 522   2          //SetTX_Mode();   //ÓĞ°´¼ü°´ÏÂÎª·¢ËÍÄ£Ê½
+ 523   2          nRF24L01_RxPacket(RxBuf);
+ 524   2          
+ 525   2          OLED_ShowCHinese(0,0,0);//ÁÙ
+ 526   2          OLED_ShowCHinese(18,0,1);//´ó
+ 527   2          OLED_ShowCHinese(36,0,2);//Îï
+ 528   2          OLED_ShowCHinese(54,0,3);//Áª
+ 529   2          OLED_ShowCHinese(72,0,4);//Êµ
+ 530   2          OLED_ShowCHinese(90,0,5);//Ñé
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 10  
+
+ 531   2          OLED_ShowCHinese(108,0,6);//ÊÒ
+ 532   2      
+ 533   2          OLED_ShowCHinese(0,3,9);//°²
+ 534   2          OLED_ShowCHinese(18,3,10);//·À
+ 535   2          OLED_ShowCHinese(36,3,11);//ÃÅ
+ 536   2          OLED_ShowCHinese(54,3,12);//ÀÈ
+ 537   2          OLED_ShowString(72,3,temp);
+ 538   2          
+ 539   2          if(Fasong1 ==1)
+ 540   2            {
+ 541   3              Fasong1 =0;
+ 542   3              init_NRF24L01_1();          //NRF½ÓÊÜ³õÊ¼»¯
+ 543   3              SetRX_Mode();   //ÎŞ°´¼ü°´ÏÂÎª½ÓÊÜÄ£Ê½
+ 544   3             nRF24L01_RxPacket(RxBuf1);
+ 545   3          
+ 546   3          }
+ 547   2          if(flag1 == 1)
+ 548   2          {
+ 549   3            flag1 =0;   //¸´Î»
+ 550   3            flag_kaisuo = 0;  //¹Ø±Õ¿ªËø±êÖ¾Î»
+ 551   3            speak = !speak;  //·äÃùÆ÷°´ÏÂÏì£¬ÔÚ°´ÏÂ²»Ïì
+ 552   3            init_NRF24L01_Send();
+ 553   3            SetTX_Mode();   //ÓĞ°´¼ü°´ÏÂÎª·¢ËÍÄ£Ê½
+ 554   3            nRF24L01_TxPacket(TxBuf);       //·¢ËÍÊı¾İ
+ 555   3            //P0=SPI_Read(STATUS);          //¶Á×´Ì¬¼Ä´æÆ÷µÄÖµ  Èç¹ûÊı¾İ³É¹¦·¢ËÍ£¬ÄÇÃ´STATUSµÄÖµÓ¦¸ÃÎª0x2e
+ 556   3            SPI_RW_Reg(WRITE_REG+STATUS,0XFF);    //Çå×´Ì¬¼Ä´æÆ÷
+ 557   3            Delay(6000);
+ 558   3            speak =1;               //¹Ø±Õ·äÃùÆ÷
+ 559   3          }
+ 560   2          
+ 561   2          if(flag2 == 1)
+ 562   2          {
+ 563   3            init_NRF24L01_1();          //NRF½ÓÊÜ³õÊ¼»¯
+ 564   3            flag2 =0;   //¸´Î»
+ 565   3            flag_kaisuo = 0;  //¹Ø±ÕÖĞ¿ªËø±êÖ¾Î»
+ 566   3            speak = !speak;  //·äÃùÆ÷°´ÏÂÏì£¬ÔÚ°´ÏÂ²»Ïì
+ 567   3            init_NRF24L01_Send_1();
+ 568   3            SetTX_Mode();   //ÓĞ°´¼ü°´ÏÂÎª·¢ËÍÄ£Ê½
+ 569   3            nRF24L01_TxPacket_1(TxBuf_1);       //·¢ËÍÊı¾İ
+ 570   3            //P0=SPI_Read(STATUS);          //¶Á×´Ì¬¼Ä´æÆ÷µÄÖµ  Èç¹ûÊı¾İ³É¹¦·¢ËÍ£¬ÄÇÃ´STATUSµÄÖµÓ¦¸ÃÎª0x2e
+ 571   3            SPI_RW_Reg(WRITE_REG+STATUS,0XFF);    //Çå×´Ì¬¼Ä´æÆ÷
+ 572   3            Delay(6000);
+ 573   3            speak =1;               //¹Ø±Õ·äÃùÆ÷
+ 574   3          }
+ 575   2          
+ 576   2          
+ 577   2      //ÈıÖÖ´®¿Ú·¢ËÍ·½Ê½
+ 578   2          if(IRQ == 0)  //µ¥Æ¬»úÍ¨¹ı¹Û²ìËüµÄIRQÒı½Å£¬¾Í¿ÉÒÔÖªµÀÊÇ·ñ½ÓÊÕµ½ÁËÊı¾İ£¬IRQÎªµÍµçÆ½£¬ËµÃ÷½ÓÊÕµ½ÁËÊı¾İ
+ 579   2          {
+ 580   3            if(flag_kaisuo ==1){jidianqi_flag =1;flag_kaisuo = 0;}
+ 581   3          //  OLED_ShowString(20,6,RxBuf);
+ 582   3            nRF24L01_RxPacket(RxBuf);
+ 583   3            Delay(600);
+ 584   3             for(i = 0;i < 2;i++)       //Í¨¹ı´®¿Ú¶Á³öÊı¾İ
+ 585   3              SendData(RxBuf[i]);
+ 586   3            Delay(60000);
+ 587   3            
+ 588   3          }
+ 589   2          else
+ 590   2          {
+ 591   3            Delay(60);
+ 592   3          }
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 11  
+
+ 593   2        
+ 594   2          if((strstr((char*)RX2_Buffer,"n")!=NULL)||(strstr((char*)RX2_Buffer,"f")!=NULL))
+ 595   2           {
+ 596   3             jidianqi_flag =1;
+ 597   3             SendString(RX2_Buffer);
+ 598   3             Delay(60);
+ 599   3              clear();  
+ 600   3            
+ 601   3           }
+ 602   2          
+ 603   2          
+ 604   2            if(jidianqi_flag ==1)
+ 605   2          {
+ 606   3            
+ 607   3            jidianqi_flag =0;
+ 608   3      //      OLED_ShowCHinese(18,6,17);//ÒÑ
+ 609   3      //      OLED_ShowCHinese(36,6,15);//¿ª
+ 610   3      //      OLED_ShowCHinese(54,6,16);//Ëø
+ 611   3            speak = !speak;  //·äÃùÆ÷°´ÏÂÏì£¬ÔÚ°´ÏÂ²»Ïì
+ 612   3            jidianqi = 0;
+ 613   3            PrintString2("on23");
+ 614   3            Delay(60000);
+ 615   3            Delay(60000);
+ 616   3            Delay(60000);
+ 617   3            Delay(60000);
+ 618   3            speak =1;               //¹Ø±Õ·äÃùÆ÷
+ 619   3             //clear(); 
+ 620   3          }
+ 621   2        
+ 622   2        }
+ 623   1        
+ 624   1        
+ 625   1      }
+ 626          
+ 627          
+ 628          /*----------------------------
+ 629          UART ÖĞ¶Ï·şÎñ³ÌĞò
+ 630          -----------------------------*/
+ 631          void Uart() interrupt 4 using 1
+ 632          {
+ 633   1          if (RI)
+ 634   1          {
+ 635   2              RI = 0;                 //Çå³ıRIÎ»
+ 636   2              P0 = SBUF;              //P0ÏÔÊ¾´®¿ÚÊı¾İ
+ 637   2              P22 = RB8;              //P2.2ÏÔÊ¾Ğ£ÑéÎ»
+ 638   2          }
+ 639   1          if (TI)
+ 640   1          {
+ 641   2              TI = 0;                 //Çå³ıTIÎ»
+ 642   2              busy = 0;               //ÇåÃ¦±êÖ¾
+ 643   2          }
+ 644   1      }
+ 645          
+ 646          /*----------------------------
+ 647          ·¢ËÍ´®¿ÚÊı¾İ
+ 648          ----------------------------*/
+ 649          void SendData(BYTE dat)
+ 650          {
+ 651   1          while (busy);               //µÈ´ıÇ°ÃæµÄÊı¾İ·¢ËÍÍê³É
+ 652   1          ACC = dat;                  //»ñÈ¡Ğ£ÑéÎ»P (PSW.0)
+ 653   1          if (P)                      //¸ù¾İPÀ´ÉèÖÃĞ£ÑéÎ»
+ 654   1          {
+C51 COMPILER V9.00   STC15NRFRE_2                                                          11/14/2018 19:53:48 PAGE 12  
+
+ 655   2      #if (PARITYBIT == ODD_PARITY)
+                      TB8 = 0;                //ÉèÖÃĞ£ÑéÎ»Îª0
+              #elif (PARITYBIT == EVEN_PARITY)
+ 658   2              TB8 = 1;                //ÉèÖÃĞ£ÑéÎ»Îª1
+ 659   2      #endif
+ 660   2          }
+ 661   1          else
+ 662   1          {
+ 663   2      #if (PARITYBIT == ODD_PARITY)
+                      TB8 = 1;                //ÉèÖÃĞ£ÑéÎ»Îª1
+              #elif (PARITYBIT == EVEN_PARITY)
+ 666   2              TB8 = 0;                //ÉèÖÃĞ£ÑéÎ»Îª0
+ 667   2      #endif
+ 668   2          }
+ 669   1          busy = 1;
+ 670   1          SBUF = ACC;                 //Ğ´Êı¾İµ½UARTÊı¾İ¼Ä´æÆ÷
+ 671   1      }
+ 672          
+ 673          /*----------------------------
+ 674          ·¢ËÍ×Ö·û´®
+ 675          ----------------------------*/
+ 676          void SendString(char *s)
+ 677          {
+ 678   1          while (*s)                  //¼ì²â×Ö·û´®½áÊø±êÖ¾
+ 679   1          {
+ 680   2              SendData(*s++);         //·¢ËÍµ±Ç°×Ö·û
+ 681   2          }
+ 682   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1450    ----
+   CONSTANT SIZE    =     63    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     20      83
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
